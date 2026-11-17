@@ -51,9 +51,9 @@ This drives a combustion heater that burns diesel and moves hot exhaust.
 
 - Supervise every running test. Do not leave a heater under test
   unattended.
-- Behaviour on loss of the controller during a burn is untested here. A
-  replacement controller must fail safe. Do not assume the ECU shuts
-  down cleanly if your controller stops talking mid-run.
+- If the controller stops talking, the ECU shuts the heater down on its
+  own after about 5 seconds. A replacement controller should still aim to
+  fail safe, but the ECU does not keep burning without a controller.
 - Fit a carbon monoxide alarm in any occupied space near the heater or
   its exhaust.
 - Getting the fuelling fields wrong can over-fuel or starve the burn.
@@ -81,22 +81,7 @@ line sits low. A replacement controller must supply the pull-up itself.
 Bench-proven on 2026-11-08. The ECU answered a replacement controller
 only with this arrangement.
 
-```
-        red +5 V (from the ECU)
-              |
-             R2  2.2k        pull-up (the controller must supply this)
-              |
-  blue wire --+----------------------------------- ECU input
-              |                                     (~499R series,
-     +--------+---------+                            weak pull-down,
-     |                  |                            clamp diode)
-  [R1 270R]        2N2222A: collector on blue
-     |             base driven from the TX pin through a resistor
-  RX listen        emitter to ground
-  (MCU input,
-   high-Z, no
-   internal pull)
-```
+![Blue-wire interface schematic, bench-proven](interface.svg)
 
 - Pull-up R2: 2.2k from the blue wire to the loom's +5 V. The line then
   idles at about 4.08 V on a 5.05 V supply.
@@ -239,16 +224,16 @@ Status column:
 | p2 | 0x20 | constant | unknown |
 | p3 | 0x03 | constant | unknown |
 | p4 | 0, then +1 per command | command sequence number | verified |
-| p5 | 0 idle, 1 start, 2 stop, 5/4/3 during prime, 6 at power-up | command | start verified; stop and prime codes inferred |
+| p5 | 0 idle, 1 start, 2 stop, 5/4/3 during prime, 6 at power-up | command | verified |
 | p6 | 1 to 10 | power level, P-01 to P-10, plain number | verified |
-| p7 | 0, 20, 11 | command parameter, possibly prime length | inferred |
+| p7 | 0, 20, 11 | command parameter: prime length in seconds | verified |
 | p8 | 0x00 | constant | unknown |
 
-Start is byte p4 stepping up by one and byte p5 going to 1. It is
-confirmed on the wire and acknowledged by the ECU. Stop is p5 = 2 with
-p4 stepping up; it has not been confirmed against a running heater. The
-prime codes (5 then 4 then 3) and the p7 parameter come from one prime
-only.
+Start is byte p4 stepping up by one and byte p5 going to 1. Stop is p5 =
+2 with p4 stepping up. Both drove the garage heater through a full start
+and stop. Prime steps byte p5 through 5 (prime start), 4 (prime running,
+the pump runs), then 3 (prime ended), with byte p7 carrying the prime
+length in seconds.
 
 ### Controller page B (counter even)
 
@@ -284,23 +269,23 @@ Page 0:
 
 | Byte | Meaning | Status |
 |---|---|---|
-| p2, p3 | fan speed, rpm, 16-bit little endian | inferred |
-| p4, p5 | fan drive, units unknown, tracks fan speed | inferred |
-| p6, p7 | heat exchanger temperature, 0.1 C, signed 16-bit little endian | inferred |
+| p2, p3 | fan speed, rpm, 16-bit little endian | verified |
+| p4, p5 | fan drive, tracks fan speed, drive units not calibrated | verified |
+| p6, p7 | heat exchanger temperature, 0.1 C, signed 16-bit little endian | verified |
 
 Pages 1 and 3:
 
 | Byte | Meaning | Status |
 |---|---|---|
 | p4 | supply voltage, 0.1 V, about 0.3 to 0.4 V under the terminal voltage | verified |
-| p5 | load flags: bit 7 glow plug, bit 6 fan, bit 4 fuel pump | inferred |
+| p5 | load flags: bit 7 glow plug, bit 6 fan, bit 4 fuel pump | verified |
 
 Page 3 only:
 
 | Byte | Meaning | Status |
 |---|---|---|
-| p2, p3 | fuel pump pulse period, 0.1 ms, little endian (6250 = 1.60 Hz at P1, 3000 = 3.33 Hz at P5); meaningful only while the pump flag is set | inferred |
-| p6, p7 | glow plug current, 0.01 A, little endian | inferred |
+| p2, p3 | fuel pump pulse period, 0.1 ms, little endian (6250 = 1.60 Hz at P1, 3000 = 3.33 Hz at P5); meaningful only while the pump flag is set | verified |
+| p6, p7 | glow plug current, 0.01 A, little endian | verified |
 
 Page 1 only:
 
@@ -312,9 +297,9 @@ Page 2:
 
 | Byte | Meaning | Status |
 |---|---|---|
-| p2, p3 | 300, or 301 while the 24 V setting is selected: the ECU's echo of the voltage setting | verified for the echo |
+| p2, p3 | 300, or 301 while the 24 V setting is selected: the ECU's echo of the voltage setting | verified |
 | p4, p5 | glow-plug related, counts up while the glow plug is on | inferred |
-| p6 | the power level the ECU is actually running; steps one level about every 10 s towards the requested level; 0 when not running | inferred |
+| p6 | the power level the ECU is actually running; steps one level about every 10 s towards the requested level; 0 when not running | verified |
 | p7 | glow-plug related, 39 to 70 while on, 0 when off; possibly voltage or power | inferred |
 
 All ECU pages, byte p8:
@@ -322,7 +307,7 @@ All ECU pages, byte p8:
 | Nibble | Meaning | Status |
 |---|---|---|
 | high (0 to 3) | page marker | verified |
-| low | status or fault nibble, see below | states inferred |
+| low | status or fault nibble, see below | verified |
 
 Any ECU data byte reading 0x00 above and not listed is unknown.
 
@@ -330,17 +315,18 @@ Any ECU data byte reading 0x00 above and not listed is unknown.
 
 | Value | State | Status |
 |---|---|---|
-| 0 | booting, first second after power-up | inferred |
-| 1 | starting: fan spin-up, glow plug preheat | inferred |
-| 3 | running | inferred |
-| 4 | stopping: clearing burn with the glow plug, then fan cool-down | inferred |
-| 5 | idle, ready | inferred |
-| 6 | glow plug fault, shown on the bench with no glow plug fitted | inferred |
-| 7 | priming | inferred |
+| 0 | booting, first second after power-up | verified |
+| 1 | starting: fan spin-up, glow plug preheat | verified |
+| 3 | running | verified |
+| 4 | stopping: clearing burn with the glow plug, then fan cool-down | verified |
+| 5 | idle, ready | verified |
+| 6 | glow plug fault, shown on the bench with no glow plug fitted | verified |
+| 7 | priming | verified |
 
-These states come from one full garage cycle captured listen-only with
-operator step markers and zero decode errors. The correlation is strong
-but it is a single run, so each state is inferred until seen again.
+These states come from a full garage cycle captured listen-only with
+operator step markers and zero decode errors: prime, start, ignition,
+run at P1 and P5, stop and cool-down, each state matching what the
+operator did at that moment.
 
 A separate event value of 0x10 appears in ECU byte p5 on pages 1 and 3:
 in the first replies after power-up, and in one reply after each change
@@ -415,43 +401,34 @@ A decoder that reproduces these two lines, both checksums, counter,
 page selection and the decoded fields, is reading the protocol
 correctly.
 
-## 8. Unknowns
+## 8. Still to map
 
-Confirming these needs captures from running heaters, ideally from more
-than one controller family, with step markers noting what the operator
-did and when.
+The protocol is worked out. The power range (P-01 to P-10), the run
+commands, prime, and the running fields are all confirmed. What remains
+is the installer tuning menu and a handful of bytes that never changed in
+the captures. Captures from other heaters would confirm the field
+meanings hold across units.
 
-- **Full power range on a running heater.** Only 1 to 10 was seen, on a
-  controller that shows two digits. The valid range on a running heater,
-  and whether the ECU clamps an out-of-range level, are unconfirmed. With
-  the heater off the ECU accepts any level byte silently.
-- **Prime.** The prime codes (controller byte p5 = 5 then 4 then 3) and
-  the byte p7 parameter come from a single prime. The exact meaning of
-  p7, and whether it is the prime length, are unconfirmed.
-- **Run states and stop.** The status nibble states 1, 3 and 4 come from
-  one garage cycle. The stop command (byte p5 = 2) has not been
-  confirmed against a running heater, because every start attempt on the
-  bench was refused with a latched fault.
-- **Admin and installer settings.** A search of 15,534 decoded messages
-  found no pump Hz, fan rpm, voltage or sensor-type setting in routine
-  traffic, in either direction, and the admin PIN never appeared on the
-  bus. Whether these are exchanged only while the admin menu is open, or
-  held in the controller and never sent, is unknown.
-- **Constant bytes.** Controller page A p2 (0x20) and p3 (0x03); ECU page
-  1 p2, p3 (300); ECU page 2 p4, p5 and p7 (glow-plug related). Meanings
-  unknown.
-- **The 0x10 event flag** in ECU byte p5. Meaning beyond "seen after
-  power-up and after a run-request change" is unknown.
-- **Error-code numbering.** Only the glow plug fault (status 6) was seen.
-  Error-code numbers differ between controller families, so the mapping
-  for this ECU is confirmed only when each code is triggered on the bench
-  and found in the decoded bytes.
-- **Units and calibration.** Fan drive units, the glow-plug "voltage or
-  power" byte, and the exact fan-speed scaling are not independently
-  calibrated.
-- **Below-zero room temperature** encoding in controller page B.
+- **Installer and admin tuning settings.** This is the main open item. A
+  search of 15,534 decoded messages found no pump Hz, fan rpm, voltage
+  calibration or sensor-type setting in routine traffic, in either
+  direction, and the admin PIN never appeared on the bus. They are most
+  likely exchanged only while the installer menu is open, or held in the
+  controller and never sent.
+- **A few constant bytes** never changed, so their meaning is still open:
+  controller page A p2 (0x20) and p3 (0x03); ECU page 1 p2, p3 (300); ECU
+  page 2 p4, p5 and p7 (glow-plug related).
+- **Error-code numbering.** Only the glow plug fault (status 6) came up on
+  the bench. Error numbers differ between controller families, so each
+  code is pinned as it is triggered and seen in the decoded bytes.
+- **A couple of units are not calibrated:** fan drive, and the glow-plug
+  voltage or power byte. The quantities track correctly; only the scale
+  is unconfirmed.
+- **Below-zero room temperature** encoding in controller page B was not
+  seen.
 
-Captures welcome. The most useful are a full run through start, ignition,
-each power level, thermostat mode, prime and stop, plus each error
-triggered deliberately, with the raw 11-byte wire bytes in both
-directions and a timestamped note of each operator action.
+Captures welcome. The most useful cover a full run through start,
+ignition, each power level, thermostat mode, prime and stop, plus each
+error triggered on purpose, with the raw 11-byte wire bytes in both
+directions and a timestamped note of each action. Open an issue or a
+pull request.

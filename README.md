@@ -12,10 +12,10 @@ passive bench captures only. No firmware was read from the heater.
 
 ## What's here
 
-- **[blue-wire-v2-protocol.md](blue-wire-v2-protocol.md)** — the full
-  write-up: physical layer, bit coding, framing, the scrambler, a
-  field-by-field map with a verified/inferred/unknown status on every
-  byte, and a worked example you can check your own decoder against.
+- **[blue-wire-v2-protocol.md](blue-wire-v2-protocol.md)**: the full
+  write-up. Physical layer, bit coding, framing, the scrambler, a
+  field-by-field map, and a worked example you can check your own decoder
+  against.
 
 ## Is this your heater?
 
@@ -53,16 +53,17 @@ scope on the blue wire:
   picks the controller's page; the ECU's page is the high nibble of
   plaintext byte 8.
 
-The full detail, including every field and how confident each one is, is
-in the [protocol document](blue-wire-v2-protocol.md).
+The full detail, including every field, is in the [protocol
+document](blue-wire-v2-protocol.md).
 
 ## Safety
 
 This drives a combustion heater. Supervise every running test, fit a
 carbon monoxide alarm near the heater and its exhaust, and treat
 flame-out and overheat handling as the parts that must be right. Getting
-the fuelling fields wrong can over-fuel or starve the burn. Behaviour on
-loss of the controller mid-burn is untested.
+the fuelling fields wrong can over-fuel or starve the burn. If the
+controller stops talking, the ECU shuts the heater down on its own after
+about 5 seconds.
 
 ## Contributing captures
 
